@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Bootstrap: resolve REPO_DIR before anything else ─────────────────────────
+# When piped via `curl | bash`, BASH_SOURCE[0] is unset and bash reads the
+# script from stdin. Wrapping all logic in main() ensures bash buffers the
+# entire script before execution, so `exec < /dev/tty` (below) cannot
+# truncate the script mid-read.
+
 if [[ -n "${BASH_SOURCE[0]:-}" && "${BASH_SOURCE[0]}" != "bash" ]]; then
   REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  _REMOTE=false
 else
-  # Running via curl | bash — download repo to a temp dir
   REPO_DIR="$(mktemp -d)"
-  trap 'rm -rf "$REPO_DIR"' EXIT
-  curl -fsSL https://github.com/whoisemiliano/sf-skills/archive/refs/heads/master.tar.gz \
-    | tar -xz -C "$REPO_DIR" --strip-components=1
+  _REMOTE=true
 fi
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -182,83 +186,98 @@ install_codex() {
   ok "AGENTS.md written with $(skill_count) skills."
 }
 
-# ── Non-interactive mode (flags) ──────────────────────────────────────────────
-if [[ $# -gt 0 ]]; then
-  TARGET="" SCOPE="project"
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --target) TARGET="$2"; shift 2 ;;
-      --scope)  SCOPE="$2";  shift 2 ;;
-      --help|-h)
-        echo "Usage: ./install.sh [--target claude|cursor|codex|all] [--scope project|global]"
-        exit 0 ;;
-      *) echo "Unknown option: $1"; exit 1 ;;
-    esac
-  done
+# ── Main ──────────────────────────────────────────────────────────────────────
+# Defined as a function so bash buffers the entire script before executing.
+# This prevents `exec < /dev/tty` (below) from cutting off script reads when
+# running via `curl | bash`.
+main() {
+  if [[ "$_REMOTE" == true ]]; then
+    echo "  Downloading sf-skills…"
+    curl -fsSL https://github.com/whoisemiliano/sf-skills/archive/refs/heads/master.tar.gz \
+      | tar -xz -C "$REPO_DIR" --strip-components=1
+    echo "  Done."
+    echo ""
+  fi
+
+  trap 'tput cnorm 2>/dev/null; stty sane 2>/dev/null || true; [[ "$_REMOTE" == true ]] && rm -rf "$REPO_DIR"' EXIT
+
+  # ── Non-interactive mode (flags) ────────────────────────────────────────────
+  if [[ $# -gt 0 ]]; then
+    TARGET="" SCOPE="project"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --target) TARGET="$2"; shift 2 ;;
+        --scope)  SCOPE="$2";  shift 2 ;;
+        --help|-h)
+          echo "Usage: ./install.sh [--target claude|cursor|codex|all] [--scope project|global]"
+          exit 0 ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+      esac
+    done
+    echo ""
+    [[ "$TARGET" == "claude" || "$TARGET" == "all" ]] && { install_claude; echo ""; }
+    [[ "$TARGET" == "cursor" || "$TARGET" == "all" ]] && { install_cursor "$SCOPE"; echo ""; }
+    [[ "$TARGET" == "codex"  || "$TARGET" == "all" ]] && { install_codex  "$SCOPE"; echo ""; }
+    ok "Done."; exit 0
+  fi
+
+  # ── Interactive TUI ─────────────────────────────────────────────────────────
+  # Reattach stdin to /dev/tty so interactive prompts work when piped.
+  [[ ! -t 0 ]] && exec < /dev/tty
+
   echo ""
-  [[ "$TARGET" == "claude" || "$TARGET" == "all" ]] && { install_claude; echo ""; }
-  [[ "$TARGET" == "cursor" || "$TARGET" == "all" ]] && { install_cursor "$SCOPE"; echo ""; }
-  [[ "$TARGET" == "codex"  || "$TARGET" == "all" ]] && { install_codex  "$SCOPE"; echo ""; }
-  ok "Done."; exit 0
-fi
-
-# ── Interactive TUI ───────────────────────────────────────────────────────────
-# When piped via curl | bash, stdin is the pipe not the terminal.
-# Reattach stdin to /dev/tty so interactive prompts work.
-[[ ! -t 0 ]] && exec < /dev/tty
-
-trap 'tput cnorm 2>/dev/null; stty sane 2>/dev/null || true' EXIT
-
-echo ""
-echo -e "  ${BD}Salesforce Best Practice Skills${RS}  ${DM}— installer${RS}"
-echo -e "  ${DM}$(skill_count) skills · Claude Code · Cursor · Codex${RS}"
-echo ""
-hr
-echo ""
-echo -e "  ${BD}Select tools to install${RS}"
-echo -e "  ${DM}↑ ↓  navigate   SPACE  toggle   ENTER  confirm   q  quit${RS}"
-echo ""
-
-multiselect "Claude Code" "Cursor" "Codex (OpenAI)"
-
-if [[ ${#_MULTISEL_RESULT[@]} -eq 0 ]]; then
-  echo ""; warn "Nothing selected. Exiting."; exit 0
-fi
-
-# Show scope picker only if Cursor (1) or Codex (2) was selected
-SCOPE="project"
-needs_scope=false
-for i in "${_MULTISEL_RESULT[@]}"; do (( i == 1 || i == 2 )) && needs_scope=true && break; done
-
-if [[ "$needs_scope" == true ]]; then
+  echo -e "  ${BD}Salesforce Best Practice Skills${RS}  ${DM}— installer${RS}"
+  echo -e "  ${DM}$(skill_count) skills · Claude Code · Cursor · Codex${RS}"
   echo ""
   hr
   echo ""
-  echo -e "  ${BD}Install scope${RS}"
-  echo -e "  ${DM}↑ ↓  navigate   ENTER  confirm${RS}"
+  echo -e "  ${BD}Select tools to install${RS}"
+  echo -e "  ${DM}↑ ↓  navigate   SPACE  toggle   ENTER  confirm   q  quit${RS}"
   echo ""
-  radioselect \
-    "Project — current directory  (.cursor/rules/  ·  AGENTS.md)" \
-    "Global  — all projects       (~/.cursor/rules/ ·  ~/.codex/AGENTS.md)"
-  (( _RADIOSEL_RESULT == 1 )) && SCOPE="global" || SCOPE="project"
-fi
 
-echo ""
-hr
-echo ""
-echo -e "  ${BD}Installing…${RS}"
-echo ""
+  multiselect "Claude Code" "Cursor" "Codex (OpenAI)"
 
-for i in "${_MULTISEL_RESULT[@]}"; do
-  case "$i" in
-    0) install_claude ;;
-    1) install_cursor "$SCOPE" ;;
-    2) install_codex  "$SCOPE" ;;
-  esac
+  if [[ ${#_MULTISEL_RESULT[@]} -eq 0 ]]; then
+    echo ""; warn "Nothing selected. Exiting."; exit 0
+  fi
+
+  # Show scope picker only if Cursor (1) or Codex (2) was selected
+  SCOPE="project"
+  needs_scope=false
+  for i in "${_MULTISEL_RESULT[@]}"; do (( i == 1 || i == 2 )) && needs_scope=true && break; done
+
+  if [[ "$needs_scope" == true ]]; then
+    echo ""
+    hr
+    echo ""
+    echo -e "  ${BD}Install scope${RS}"
+    echo -e "  ${DM}↑ ↓  navigate   ENTER  confirm${RS}"
+    echo ""
+    radioselect \
+      "Project — current directory  (.cursor/rules/  ·  AGENTS.md)" \
+      "Global  — all projects       (~/.cursor/rules/ ·  ~/.codex/AGENTS.md)"
+    (( _RADIOSEL_RESULT == 1 )) && SCOPE="global" || SCOPE="project"
+  fi
+
   echo ""
-done
+  hr
+  echo ""
+  echo -e "  ${BD}Installing…${RS}"
+  echo ""
 
-hr
-echo ""
-ok "All done."
-echo ""
+  for i in "${_MULTISEL_RESULT[@]}"; do
+    case "$i" in
+      0) install_claude ;;
+      1) install_cursor "$SCOPE" ;;
+      2) install_codex  "$SCOPE" ;;
+    esac
+    echo ""
+  done
+
+  hr
+  echo ""
+  ok "All done."
+  echo ""
+}
+
+main "$@"
