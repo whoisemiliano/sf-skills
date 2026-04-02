@@ -40,22 +40,27 @@ strip_frontmatter() {
 }
 
 # ── Key reader ────────────────────────────────────────────────────────────────
+# Tab (single byte \x09) is the primary navigation key — no escape sequences,
+# no timing issues. Arrow keys are attempted as a best-effort bonus.
+_KEY_RESULT=""
 _read_key() {
-  local k s2 s3
+  local k="" char
   IFS= read -rsn1 k 2>/dev/null
   case "$k" in
+    $'\t')    _KEY_RESULT='DOWN'  ;;   # Tab → next (cycles)
+    ' ')      _KEY_RESULT='SPACE' ;;
+    ''|$'\n') _KEY_RESULT='ENTER' ;;
+    q|Q)      _KEY_RESULT='QUIT'  ;;
     $'\x1b')
-      IFS= read -rsn1 -t 0.1 s2 2>/dev/null || true
-      IFS= read -rsn1 -t 0.1 s3 2>/dev/null || true
-      case "${s2}${s3}" in
-        '[A') printf 'UP'   ;;
-        '[B') printf 'DOWN' ;;
-        *)    printf 'ESC'  ;;
+      while IFS= read -rsn1 -t 0.05 char 2>/dev/null; do
+        k+="$char"
+      done
+      case "$k" in
+        $'\x1b[A') _KEY_RESULT='UP'   ;;
+        $'\x1b[B') _KEY_RESULT='DOWN' ;;
+        *)         _KEY_RESULT='ESC'  ;;
       esac ;;
-    ' ')      printf 'SPACE' ;;
-    ''|$'\n') printf 'ENTER' ;;
-    q|Q)      printf 'QUIT'  ;;
-    *)        printf '%s' "$k" ;;
+    *) _KEY_RESULT="$k" ;;
   esac
 }
 
@@ -85,10 +90,10 @@ multiselect() {
 
   tput civis
   while true; do
-    local k; k=$(_read_key)
-    case "$k" in
-      UP)    (( cur > 0   )) && (( cur-- )) ;;
-      DOWN)  (( cur < n-1 )) && (( cur++ )) ;;
+    _read_key
+    case "$_KEY_RESULT" in
+      UP)    (( cur = (cur - 1 + n) % n )) || true ;;
+      DOWN)  (( cur = (cur + 1)     % n )) || true ;;
       SPACE) [[ "${sel[$cur]}" == "true" ]] && sel[$cur]="false" || sel[$cur]="true" ;;
       ENTER) break ;;
       QUIT)  tput cnorm; echo ""; exit 0 ;;
@@ -127,10 +132,10 @@ radioselect() {
 
   tput civis
   while true; do
-    local k; k=$(_read_key)
-    case "$k" in
-      UP)    (( cur > 0   )) && (( cur-- )) ;;
-      DOWN)  (( cur < n-1 )) && (( cur++ )) ;;
+    _read_key
+    case "$_KEY_RESULT" in
+      UP)    (( cur = (cur - 1 + n) % n )) || true ;;
+      DOWN)  (( cur = (cur + 1)     % n )) || true ;;
       ENTER) break ;;
       QUIT)  tput cnorm; echo ""; exit 0 ;;
     esac
@@ -232,7 +237,7 @@ main() {
   hr
   echo ""
   echo -e "  ${BD}Select tools to install${RS}"
-  echo -e "  ${DM}↑ ↓  navigate   SPACE  toggle   ENTER  confirm   q  quit${RS}"
+  echo -e "  ${DM}Tab  navigate   SPACE  toggle   ENTER  confirm   q  quit${RS}"
   echo ""
 
   multiselect "Claude Code" "Cursor" "Codex (OpenAI)"
@@ -251,7 +256,7 @@ main() {
     hr
     echo ""
     echo -e "  ${BD}Install scope${RS}"
-    echo -e "  ${DM}↑ ↓  navigate   ENTER  confirm${RS}"
+    echo -e "  ${DM}Tab  navigate   ENTER  confirm${RS}"
     echo ""
     radioselect \
       "Project — current directory  (.cursor/rules/  ·  AGENTS.md)" \
