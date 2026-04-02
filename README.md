@@ -60,6 +60,7 @@ Pass flags to skip the prompt entirely:
 | **sf-data-architecture** | `/sf-data-architecture` | Architecture guidance: MDM design, LDV strategy, B2C modeling, Multipicklist vs Junction Object, Batch vs Bulk API |
 | **sf-validation-rules** | `/sf-validation-rules` | Write, review, or audit Salesforce Validation Rules: naming, error codes, bypass patterns, formula conventions, anti-patterns |
 | **sf-packages** | `/sf-packages` | Guide building Managed or Unlocked Packages: Dev Hub setup, namespace, versioning, promotion, and deployment |
+| **plan-first** | `/plan-first` | Architecture planning baseline — always plan before executing. Forces a structured plan with reasoning, risks, and step-by-step breakdown. Requires explicit approval before any work begins. |
 
 ---
 
@@ -89,6 +90,36 @@ Pass flags to skip the prompt entirely:
 # Find who has dangerous permissions
 /sf-permissions-audit
 > I need to find all users who have Modify All Data in our production org
+
+# Plan a multi-step task before touching anything
+/plan-first
+> We need to migrate 500k Account records from our legacy CRM into Salesforce and decommission the old system
+```
+
+---
+
+## Plan Before You Execute
+
+Use `/plan-first` before any task that is multi-step, risky, or irreversible.
+
+It produces a structured plan with:
+- **Task understanding** — confirms scope before work starts
+- **Assumptions** — surfaces what could be wrong before it causes rework
+- **Approach options** — shows tradeoffs and commits to a recommendation
+- **Step-by-step breakdown** — each step has a risk level and reversibility flag
+- **What is NOT being done** — rules out alternatives explicitly so you can catch disagreements early
+- **Open questions** — gates execution if clarification is needed
+- **Success criteria** — defines what done looks like
+
+The plan is presented for review. Nothing executes until you explicitly approve it.
+
+```
+/plan-first
+> I need to refactor all our Record-Triggered Flows to use the new trigger framework and consolidate duplicate flows on the Opportunity object
+
+--- plan-first produces a structured plan ---
+
+Ready to proceed? Approve, modify, or ask questions before I start.
 ```
 
 ---
