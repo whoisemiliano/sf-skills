@@ -33,7 +33,7 @@ skill_files()  { find "$REPO_DIR/skills" -maxdepth 1 -name 'sf-*.md' | sort; }
 skill_count()  { skill_files | wc -l | tr -d ' '; }
 
 get_meta() {
-  sed -n "/^---$/,/^---$/{ /^${1}:/{ s/^${1}:[[:space:]]*//; p; q } }" "$2"
+  awk -v k="$1" 'BEGIN{f=0} /^---$/{f++; next} f==1 && $0~"^"k":"{sub("^"k":[[:space:]]*",""); print; exit}' "$2"
 }
 strip_frontmatter() {
   awk 'BEGIN{f=0} /^---$/{f++; next} f>=2{print}' "$1"
